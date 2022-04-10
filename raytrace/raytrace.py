@@ -12,7 +12,9 @@ def raytrace(hmap, poses_inds, max_pts_inds):
 	mask = torch.ones_like(hmap, device=torch.device('cuda')).bool()
 
 	# Flatten inputs so rays are all along one index
-	max_pts_inds = max_pts_inds.flatten()
+	P = poses_inds.shape[0]
+	poses_flat = poses_inds.flatten()
+	max_pts_flat = max_pts_inds.transpose(2,0).flatten()
 
 	# Flatten heightmap and mask
 	H = hmap.shape[0]
@@ -21,5 +23,5 @@ def raytrace(hmap, poses_inds, max_pts_inds):
 	mask = mask.flatten()
 
 	# Call to CUDA kernel wrapper
-	RaytraceCUDA(hmap, poses_inds, max_pts_inds, mask, W, H)
+	RaytraceCUDA(hmap, poses_flat, max_pts_flat, mask, W, H, P)
 	return torch.reshape(mask, (H, W))
