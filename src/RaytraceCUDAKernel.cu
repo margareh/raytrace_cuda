@@ -154,6 +154,17 @@ void RaytraceCUDAKernel(float *hmap, float *poses_inds, float *max_pts_inds,
 	// error handling
 	cudaError_t err = cudaGetLastError();
 	if (cudaSuccess != err){
-		std::cout << "CUDA kernel failed with error: " << cudaGetErrorString(err);
+		std::cout << "CUDA kernel failed with error: " << cudaGetErrorString(err) << std::endl;
 	}
+
+	// Clear memory
+	cudaFree(d_pose);
+	cudaFree(d_max_pts);
+	cudaFree(d_hmap);
+	cudaFree(d_mask);
+
+	d_pose=NULL;
+	d_max_pts=NULL;
+	d_hmap=NULL;
+	d_mask=NULL;
 }
