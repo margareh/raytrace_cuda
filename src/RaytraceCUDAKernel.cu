@@ -2,7 +2,7 @@
 #include <iostream>
 
 __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
-                  		   bool *mask, int N, int W, int H, int P) {
+                  		   float *scan, int N, int W, int H, int P, float res) {
 
 	// Adapted from http://playtechs.blogspot.com/2007/03/raytracing-on-grid.html
 
@@ -96,10 +96,15 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 		// Get current x, y, and z given t
 		z_curr = z_start + t * z_inc * dz;
 		
-		// check if current position is above ground (update mask and return if not)
+		// check if current position is above ground (update scan and return if not)
 		hmap_z = hmap[y_grid + x_grid * H];
-		if (hmap_z >= z_curr) {
-			mask[y_grid + x_grid * H] = false;
+		if (hmap_z >= z_curr && t > 0) {
+			// mask[y_grid + x_grid * H] = false;
+			float x_out = res * x_grid;
+			float y_out = res * y_grid;
+			float pose_x_m = res * pose_x;
+			float pose_y_m = res * pose_y;
+			scan[y_grid + x_grid * H] = sqrt((x_out - pose_x_m)**2 + (y_out - pose_y_m)**2 + (z_curr - z_start)**2);
 			return;
 		}
 
@@ -130,26 +135,25 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 }
 
 void RaytraceCUDAKernel(float *hmap, float *poses_inds, float *max_pts_inds,
-						bool *mask, int N, int W, int H, int P, cudaStream_t stream) {
+						float *scan, int N, int W, int H, int P, float res, cudaStream_t stream) {
 						
 	// create shared arrays for heightmap and mask
-	float *d_hmap, *d_pose, *d_max_pts;
-	bool *d_mask;
+	float *d_hmap, *d_pose, *d_max_pts, *d_scan;
   	cudaMalloc(&d_pose, 3 * P * sizeof(float)); 
   	cudaMalloc(&d_max_pts, N * 3 * P * sizeof(float));
 	cudaMalloc(&d_hmap, H * W * sizeof(float));
-	cudaMalloc(&d_mask, H * W * sizeof(bool));
+	cudaMalloc(&d_scan, N * P * sizeof(float));
 
 	cudaMemcpy(d_pose, poses_inds, 3 * P * sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_max_pts, max_pts_inds, N * 3 * P * sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_hmap, hmap, H * W * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_mask, mask, H * W * sizeof(bool), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_scan, scan, N * P * sizeof(float), cudaMemcpyHostToDevice);
 
 	int T = N * P;
-	raytrace_k<<<GET_BLOCKS(T), CUDA_NUM_THREADS, 0, stream>>>(d_hmap, d_pose, d_max_pts, d_mask, N, W, H, P);
+	raytrace_k<<<GET_BLOCKS(T), CUDA_NUM_THREADS, 0, stream>>>(d_hmap, d_pose, d_max_pts, d_scan, N, W, H, P, res);
 
 	// Read mask results
-	cudaMemcpy(mask, d_mask, H * W * sizeof(bool), cudaMemcpyDeviceToHost);
+	cudaMemcpy(scan, d_scan, N * P * sizeof(float), cudaMemcpyDeviceToHost);
 	
 	// error handling
 	cudaError_t err = cudaGetLastError();
@@ -161,10 +165,10 @@ void RaytraceCUDAKernel(float *hmap, float *poses_inds, float *max_pts_inds,
 	cudaFree(d_pose);
 	cudaFree(d_max_pts);
 	cudaFree(d_hmap);
-	cudaFree(d_mask);
+	cudaFree(d_scan);
 
 	d_pose=NULL;
 	d_max_pts=NULL;
 	d_hmap=NULL;
-	d_mask=NULL;
+	d_scan=NULL;
 }
