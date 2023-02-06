@@ -70,18 +70,18 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 	if (dz == 0){
 		z_inc = 0;
 		t_next_z = 1000.0;
-	} else if (z_max > pose_z) {
+	} else if (z_max > z_start) {
 		z_inc = 1;
-		n += int(floor(z_max)) - pose_z;
+		n += int(floor(z_max)) - z_start;
 		t_next_z = (z_start + 1 - pose_z) * dt_dz;
 	} else {
 		z_inc = -1;
-		n += pose_z - int(floor(z_max));
+		n += z_start - int(floor(z_max));
 		t_next_z = (pose_z - z_start) * dt_dz;
 	}
 
 	// loop through ray and update mask as necessary
-	float z_curr = z_start;
+	float z_curr = pose_z;
 	int x_grid = pose_x;
 	int y_grid = pose_y;
 	int z_grid = z_start;
@@ -94,7 +94,7 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 		if (x_grid >= W || x_grid < 0 || y_grid >= H || y_grid < 0) return;
 
 		// Get current x, y, and z given t
-		z_curr = z_start + t * z_inc * dz;
+		z_curr = pose_z + t * z_inc * dz;
 		
 		// check if current position is above ground (update scan and return if not)
 		hmap_z = hmap[y_grid + x_grid * H];
@@ -104,7 +104,7 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 			float y_out = res * y_grid;
 			float pose_x_m = res * pose_x;
 			float pose_y_m = res * pose_y;
-			scan[y_grid + x_grid * H] = sqrt((x_out - pose_x_m)**2 + (y_out - pose_y_m)**2 + (z_curr - z_start)**2);
+			scan[y_grid + x_grid * H] = sqrt((x_out - pose_x_m) * (x_out - pose_x_m) + (y_out - pose_y_m) * (y_out - pose_y_m) + (z_curr - pose_z) * (z_curr - pose_z));
 			return;
 		}
 
