@@ -10,7 +10,7 @@ def raytrace(hmap, poses_inds, max_pts_inds, max_range, res):
 
 	# Create scan object to store results in
 	# Initialize to max range, will adjust as ray intersections are found
-	scan = torch.ones(max_pts_inds.shape[0:3], device=torch.device('cuda')).float() * max_range
+	scan = torch.ones(max_pts_inds.shape[0:3], device=torch.device('cuda')) * max_range
 
 	# Flatten inputs so rays are all along one index
 	P = poses_inds.shape[0]
@@ -27,7 +27,7 @@ def raytrace(hmap, poses_inds, max_pts_inds, max_range, res):
 	scan = scan.reshape((Hs*Ws*P))
 
 	# Call to CUDA kernel wrapper
-	RaytraceCUDA(hmap, poses_flat, max_pts_flat, scan, W, H, P, res)
+	RaytraceCUDA(hmap, poses_flat, max_pts_flat, scan.float(), W, H, P, res)
 
 	# Reshape the scan and return
 	scan = scan.cpu().reshape((Hs,Ws,P))
