@@ -7,8 +7,9 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 	// Adapted from http://playtechs.blogspot.com/2007/03/raytracing-on-grid.html
 
 	// Get indices
-	int i = blockIdx.x * blockDim.x + threadIdx.x; // Ray index (one thread per ray)
+	int i = blockIdx.x * blockDim.x + threadIdx.x; // Ray index (one thread per ray) out of total rays
 	int j = int(floor(i / N)); // Pose index
+	int k = int(floor(i / P)); // Ray index for this specific scan
 	if (i > (N * P)) return;
 
 	/***** raytrace through ray (this is sloppy repetitive code but I'm lazy) *****/
@@ -100,14 +101,13 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 		z_curr = pose_z + t * z_inc * dz;
 		
 		// check if current position is above ground (update scan and return if not)
-		// hmap_z = hmap[y_grid * W + x_grid];
-		hmap_z = hmap[y_grid + x_grid * H];
+		hmap_z = hmap[x_grid * W + y_grid];
 		if (hmap_z >= z_curr && abs(t) > 0) {
 			x_out = res * x_grid;
 			y_out = res * y_grid;
 			range = sqrt((x_out - pose_x_m) * (x_out - pose_x_m) + (y_out - pose_y_m) * (y_out - pose_y_m) + (hmap_z - pose_z) * (hmap_z - pose_z));
-			// scan[i * P + j] = range;
-			scan[j * N + i] = range;
+			scan[k * P + j] = range;
+			// scan[j * N + k] = range;
 			return;
 		}
 
