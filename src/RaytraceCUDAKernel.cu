@@ -95,7 +95,7 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 	for (; n > 0; --n){
 
 		// check if current grid index is valid (return if not)
-		if (x_grid >= W || x_grid < 0 || y_grid >= H || y_grid < 0) return;
+		if (x_grid >= H || x_grid < 0 || y_grid >= W || y_grid < 0) return;
 
 		// Get current x, y, and z given t
 		z_curr = pose_z + t * z_inc * dz;
@@ -105,21 +105,20 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 		if (hmap_z >= z_curr && abs(t) > 0) {
 			x_out = res * x_grid;
 			y_out = res * y_grid;
-			range = sqrt((x_out - pose_x_m) * (x_out - pose_x_m) + (y_out - pose_y_m) * (y_out - pose_y_m) + (hmap_z - pose_z) * (hmap_z - pose_z));
+			range = sqrt((x_out - pose_x_m) * (x_out - pose_x_m) + (y_out - pose_y_m) * (y_out - pose_y_m) + (z_curr - pose_z) * (z_curr - pose_z));
 			scan[k * P + j] = range;
-			// scan[j * N + k] = range;
 			return;
 		}
 
 		// take a step along the ray
-		if (t_next_x < t_next_y && t_next_x < t_next_z) {
+		if (t_next_x <= t_next_y && t_next_x <= t_next_z) {
 
 			// x is min
 			x_grid += x_inc;
 			t = t_next_x;
 			t_next_x += dt_dx;
 
-		} else if(t_next_y < t_next_x && t_next_y < t_next_z) {
+		} else if(t_next_y <= t_next_x && t_next_y <= t_next_z) {
 
 			// y is min
 			y_grid += y_inc;
