@@ -13,7 +13,14 @@ setup(
                 'src/RaytraceCUDA.cpp',
                 'src/RaytraceCUDAKernel.cu',
             ],
-        )
+        ),
+        CUDAExtension(
+            name='HorizonCUDA',
+            sources=[
+                'src/HorizonCUDA.cpp',
+                'src/HorizonCUDAKernel.cu'
+            ],
+        ),
     ],
     cmdclass={'build_ext': BuildExtension},
 )

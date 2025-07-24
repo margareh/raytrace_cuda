@@ -1,5 +1,7 @@
 import torch
+import numpy as np
 from RaytraceCUDA import RaytraceCUDA
+from HorizonCUDA import HorizonCUDA
 
 def raytrace(hmap, poses_inds, max_pts_inds, max_range, res):
 	"""
@@ -33,3 +35,41 @@ def raytrace(hmap, poses_inds, max_pts_inds, max_range, res):
 	scan = scan.cpu().reshape((Hs,Ws,P))
 
 	return scan
+
+
+def raytrace_horizon(hmap, azim, res=1, max_range=4, min_elev=-89, elev_delta=0.25):
+	"""
+	Python wrapper for CUDA raytracing at each point in heightmap
+	Goal is to return horizon for set angular increments
+	Inputs: heightmap, azimuthal angles
+	Params: 
+		max_range	: maximum search range for determining horizon [km]
+		res			: resolution of DEM [m]
+		min_elev	: starting elevation for determining horizon [degrees]
+		elev_delta	: change in elevation for determining horizon [degrees]
+	Outputs: elevation angle for each heightmap point and azimuth
+	"""
+
+	# Limit to inner portion of heightmap that we have all boundaries for
+	h, w = hmap.shape
+	hmap_limit = hmap[max_range:(h-max_range-1), max_range:(w-max_range-1)]
+
+	# Get dimensions of heightmap and azimuths that we're going to use
+	H, W = hmap_limit.shape
+	A = len(azim)
+
+	# Create scan object to store results in
+	elev = torch.empty((H,W,A), dtype=np.float32)
+
+	# Convert inputs to tensors if not already
+	if not isinstance(hmap_limit, torch.Tensor):
+		hmap_limit = torch.Tensor(hmap_limit)
+
+	if not isinstance(azim, torch.Tensor):
+		azim = torch.Tensor(azim)
+
+	# Call to CUDA kernel wrapper for horizon calculation
+	HorizonCUDA(hmap_limit, azim, elev, max_range, res, min_elev, elev_delta)
+	elev = elev.cpu().reshape((H, W, A))
+
+	return elev
