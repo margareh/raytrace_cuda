@@ -3,7 +3,9 @@
 #include <math.h>
 
 
-__device__ float raytrace(float *hmap, float *elev, float *start_point, float *end_point, float res, int H, int W) {
+__device__ float raytrace(float *hmap, float *start_point, float *end_point, float res, int H, int W) {
+
+	// Adapted from http://playtechs.blogspot.com/2007/03/raytracing-on-grid.html
 
 	/***** raytrace through ray (this is sloppy repetitive code but I'm lazy) *****/
 
@@ -88,13 +90,13 @@ __device__ float raytrace(float *hmap, float *elev, float *start_point, float *e
 	for (; n > 0; --n){
 
 		// check if current grid index is valid (return if not)
-		if (x_grid >= H || x_grid < 0 || y_grid >= W || y_grid < 0) return -1.0;
+		if (x_grid >= W || x_grid < 0 || y_grid >= H || y_grid < 0) return -1.0;
 
 		// Get current x, y, and z given t
 		z_curr = pose_z + t * z_inc * dz;
 		
 		// check if current position is above ground (update scan and return if not)
-		hmap_z = hmap[x_grid * W + y_grid];
+		hmap_z = hmap[y_grid * W + x_grid];
 		if (hmap_z >= z_curr && abs(t) > 0) {
 			x_out = res * x_grid;
 			y_out = res * y_grid;
@@ -135,61 +137,86 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
                   		   int W, int H, int A, float max_range, 
 						   float res, float min_elev, float elev_delta) {
 
-	// Adapted from http://playtechs.blogspot.com/2007/03/raytracing-on-grid.html
-
 	// Get indices
 	int i = blockIdx.x * blockDim.x + threadIdx.x; // Ray index (one thread per ray) out of total rays
 	int j = int(floor(i / (H * W))); // Azimuth index
-	int k = int(floor(i / A)); // Grid point index
-	int x_ind = int(floor(k / H)); // Grid point index, x axis
-	int y_ind = int(floor(k / W)); // Grid point index, y axis
+	int k = int(floor(i / A)); // Grid point index for output grid (within boundary zone)
+	int y_ind = int(floor(i / (A * W))); // Y index
+	int x_ind = k - W*y_ind; // X index
 	if (i > (H * W * A)) return;
 
+	// Get grid point indices for heightmap grid cell
+	// These are offset by the boundary area
+	int b = int(floor(max_range * 1000 / res)); // this will be max range in pixels (grid indices)
+	int kb = k + W*b + 2*b*y_ind + 2*b*b + b;
+	int xb_ind = x_ind+b; // Grid point index, x axis
+	int yb_ind = y_ind+b; // Grid point index, y axis
+
 	// Define start point and azimuthal angle
-	float start_point[3] = {x_ind * res, y_ind * res, hmap[k]};
+	float curr_height = hmap[kb]; // k*A+j but need to adjust k to account for boundary points
+	float start_point[3] = {xb_ind * res, yb_ind * res, curr_height};
 	float curr_azim = azim[j] * (M_PI / 180); // converted to rad
+
+	// Max range in meters
+	float max_range_m = max_range * 1000;
 
 	// Start with min elevation and loop until we find no terrain
 	float range = 0;
 	float curr_elev = min_elev * (M_PI / 180); // converted to rad
 	elev_delta *= (M_PI / 180); // converted to rad
-	while (fabs(range - max_range) > 0.0001) {
+	min_elev * (M_PI / 180);
+	int iter=0;
+	while (range < max_range_m) {
 
 		// Increment elevation
 		// we're technically skipping the first but that's fine
+		// min_elev used later to mark points without intersections
 		curr_elev += elev_delta;
-
+	
 		// Define end point based on current grid cell, azimuth, elevation
 		float cos_elev = cos(curr_elev);
 		float end_point[3] = { cos(curr_azim) * cos_elev, sin(curr_azim) * cos_elev, sin(curr_elev) };
 		for (int c=0; c<3; c++){
-			end_point[c] *= max_range;
+			end_point[c] *= max_range_m;
 			end_point[c] += start_point[c];
 		}
 
 		// Call raytrace
-		range = raytrace(hmap, elev, start_point, end_point, res, H, W);
+		range = raytrace(hmap, start_point, end_point, res, H+2*b, W+2*b);
+		if (range < 0) {
+			// error in raytracing (out of bounds or didn't find intersection)
+			// elevation for this point will be set to minimum value
+			// also setting range to max range to break out of loop
+			range = max_range_m;
+			if (iter == 0){
+				// set minimum elevation if we're on the first run and haven't found a result
+				// elev delta will be removed when assigning result
+				curr_elev = min_elev + elev_delta;
+			}
+		}
+		iter++;
 
 	}
 
 	// Store the results
-	elev[i] = curr_elev;
+	// need to subtract off change in elevation for last one that intersects with the terrain
+	elev[k*A + j] = curr_elev - elev_delta; // dimension order: y, x, azim
+	// elev[k*A + j] = curr_height;
 
 }
 
 void HorizonCUDAKernel(float *hmap, float *azim, float *elev, 
-					   int W, int H, int A, float max_range, float res, 
+					   int W, int H, int A, int WB, int HB, float max_range, float res, 
 					   float min_elev, float elev_delta, cudaStream_t stream) {
 						
 	// create shared arrays for heightmap and mask
 	float *d_hmap, *d_azim, *d_elev;
-	cudaMalloc(&d_hmap, H * W * sizeof(float));
+	cudaMalloc(&d_hmap, WB * HB * sizeof(float));
   	cudaMalloc(&d_azim, A * sizeof(float));
 	cudaMalloc(&d_elev, H * W * A * sizeof(float));
 
-	cudaMemcpy(d_hmap, hmap, H * W * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_azim, hmap, A * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_elev, hmap, H * W * A * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_hmap, hmap, WB * HB * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_azim, azim, A * sizeof(float), cudaMemcpyHostToDevice);
 
 	horizon_k<<<GET_BLOCKS(H * W * A), CUDA_NUM_THREADS, 0, stream>>>(d_hmap, d_azim, d_elev, W, H, A, max_range, res, min_elev, elev_delta);
 
