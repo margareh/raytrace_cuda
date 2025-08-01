@@ -45,7 +45,7 @@ __device__ float raytrace(float *hmap, float *start_point, float *end_point, flo
 	} else {
 		x_inc = -1;
 		n += pose_x - x_max;
-		t_next_x = -dt_dx;
+		t_next_x = dt_dx;
 	}
 
 	// y
@@ -59,7 +59,7 @@ __device__ float raytrace(float *hmap, float *start_point, float *end_point, flo
 	} else {
 		y_inc = -1;
 		n += pose_y - y_max;
-		t_next_y = -dt_dy;
+		t_next_y = dt_dy;
 	}
 
 	// z
@@ -154,7 +154,7 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
 
 	// Define start point and azimuthal angle
 	float curr_height = hmap[kb]; // k*A+j but need to adjust k to account for boundary points
-	float start_point[3] = {xb_ind * res, yb_ind * res, curr_height};
+	float start_point[3] = {xb_ind, yb_ind, curr_height + 0.01};
 	float curr_azim = azim[j] * (M_PI / 180); // converted to rad
 
 	// Max range in meters
@@ -164,9 +164,8 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
 	float range = 0;
 	float curr_elev = min_elev * (M_PI / 180); // converted to rad
 	elev_delta *= (M_PI / 180); // converted to rad
-	min_elev * (M_PI / 180);
 	int iter=0;
-	while (range < max_range_m) {
+	while (max_range_m - range > 0.00001) {
 
 		// Increment elevation
 		// we're technically skipping the first but that's fine
@@ -175,7 +174,7 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
 	
 		// Define end point based on current grid cell, azimuth, elevation
 		float cos_elev = cos(curr_elev);
-		float end_point[3] = { cos(curr_azim) * cos_elev, sin(curr_azim) * cos_elev, sin(curr_elev) };
+		float end_point[3] = { cos(curr_azim) * cos_elev / res, sin(curr_azim) * cos_elev / res, sin(curr_elev) };
 		for (int c=0; c<3; c++){
 			end_point[c] *= max_range_m;
 			end_point[c] += start_point[c];
@@ -188,11 +187,6 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
 			// elevation for this point will be set to minimum value
 			// also setting range to max range to break out of loop
 			range = max_range_m;
-			if (iter == 0){
-				// set minimum elevation if we're on the first run and haven't found a result
-				// elev delta will be removed when assigning result
-				curr_elev = min_elev + elev_delta;
-			}
 		}
 		iter++;
 
@@ -201,7 +195,7 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
 	// Store the results
 	// need to subtract off change in elevation for last one that intersects with the terrain
 	elev[k*A + j] = curr_elev - elev_delta; // dimension order: y, x, azim
-	// elev[k*A + j] = curr_height;
+	// elev[k*A + j] = end_point[0];
 
 }
 
