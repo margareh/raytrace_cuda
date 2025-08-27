@@ -143,7 +143,7 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
 	int k = int(floor(i / A)); // Grid point index for output grid (within boundary zone)
 	int y_ind = int(floor(i / (A * W))); // Y index
 	int x_ind = k - W*y_ind; // X index
-	if (i > (H * W * A)) return;
+	if (i >= (H * W * A)) return;
 
 	// Get grid point indices for heightmap grid cell
 	// These are offset by the boundary area

@@ -10,7 +10,7 @@ __global__ void raytrace_k(float *hmap, float *poses_inds, float *max_pts_inds,
 	int i = blockIdx.x * blockDim.x + threadIdx.x; // Ray index (one thread per ray) out of total rays
 	int j = int(floor(i / N)); // Pose index
 	int k = int(floor(i / P)); // Ray index for this specific scan
-	if (i > (N * P)) return;
+	if (i >= (N * P)) return;
 
 	/***** raytrace through ray (this is sloppy repetitive code but I'm lazy) *****/
 
