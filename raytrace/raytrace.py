@@ -64,18 +64,19 @@ def raytrace_horizon(hmap, azim, res=1, max_range=4, min_elev=-89, elev_delta=0.
 	H, W = hmap_mask.shape
 	# print(hmap_mask.shape)
 	# print(azim)
-	A = azim.shape[0]
+	# A should equal H * W
 
 	# Create scan object to store results in
-	elev = torch.empty((H,W,A), dtype=torch.float32)
+	elev = torch.empty((H,W), dtype=torch.float32)
 	# print(elev.shape)
 
 	# Flatten input arrays
 	hmap = hmap.flatten() # row-major order
 	elev = elev.flatten()
+	azim = azim.flatten()
 
 	# Call to CUDA kernel wrapper for horizon calculation
-	HorizonCUDA(hmap, azim, elev, W, H, A, w, h, max_range, res, min_elev, elev_delta)
-	elev = elev.cpu().reshape((H, W, A)).numpy()
+	HorizonCUDA(hmap, azim, elev, W, H, w, h, max_range, res, min_elev, elev_delta)
+	elev = elev.cpu().reshape((H, W)).numpy()
 
 	return elev * (180 / np.pi)

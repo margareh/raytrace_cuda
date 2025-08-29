@@ -134,28 +134,26 @@ __device__ float raytrace(float *hmap, float *start_point, float *end_point, flo
 
 
 __global__ void horizon_k(float *hmap, float *azim, float *elev,
-                  		   int W, int H, int A, float max_range, 
+                  		   int W, int H, float max_range, 
 						   float res, float min_elev, float elev_delta) {
 
 	// Get indices
 	int i = blockIdx.x * blockDim.x + threadIdx.x; // Ray index (one thread per ray) out of total rays
-	int j = int(floor(i / (H * W))); // Azimuth index
-	int k = int(floor(i / A)); // Grid point index for output grid (within boundary zone)
-	int y_ind = int(floor(i / (A * W))); // Y index
-	int x_ind = k - W*y_ind; // X index
-	if (i >= (H * W * A)) return;
+	int y_ind = int(floor(i / W)); // Y index
+	int x_ind = i - W*y_ind; // X index
+	if (i >= (H * W)) return;
 
 	// Get grid point indices for heightmap grid cell
 	// These are offset by the boundary area
 	int b = int(floor(max_range * 1000 / res)); // this will be max range in pixels (grid indices)
-	int kb = k + W*b + 2*b*y_ind + 2*b*b + b;
+	int kb = i + W*b + 2*b*y_ind + 2*b*b + b;
 	int xb_ind = x_ind+b; // Grid point index, x axis
 	int yb_ind = y_ind+b; // Grid point index, y axis
 
 	// Define start point and azimuthal angle
 	float curr_height = hmap[kb]; // k*A+j but need to adjust k to account for boundary points
 	float start_point[3] = {xb_ind, yb_ind, curr_height + 0.01};
-	float curr_azim = azim[j] * (M_PI / 180); // converted to rad
+	float curr_azim = azim[i] * (M_PI / 180); // converted to rad
 
 	// Max range in meters
 	float max_range_m = max_range * 1000;
@@ -194,28 +192,28 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
 
 	// Store the results
 	// need to subtract off change in elevation for last one that intersects with the terrain
-	elev[k*A + j] = curr_elev - elev_delta; // dimension order: y, x, azim
+	elev[i] = curr_elev - elev_delta; // dimension order: y, x, azim
 	// elev[k*A + j] = end_point[0];
 
 }
 
 void HorizonCUDAKernel(float *hmap, float *azim, float *elev, 
-					   int W, int H, int A, int WB, int HB, float max_range, float res, 
+					   int W, int H, int WB, int HB, float max_range, float res, 
 					   float min_elev, float elev_delta, cudaStream_t stream) {
 						
 	// create shared arrays for heightmap and mask
 	float *d_hmap, *d_azim, *d_elev;
 	cudaMalloc(&d_hmap, WB * HB * sizeof(float));
-  	cudaMalloc(&d_azim, A * sizeof(float));
-	cudaMalloc(&d_elev, H * W * A * sizeof(float));
+  	cudaMalloc(&d_azim, H * W * sizeof(float));
+	cudaMalloc(&d_elev, H * W * sizeof(float));
 
 	cudaMemcpy(d_hmap, hmap, WB * HB * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_azim, azim, A * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_azim, azim, H * W * sizeof(float), cudaMemcpyHostToDevice);
 
-	horizon_k<<<GET_BLOCKS(H * W * A), CUDA_NUM_THREADS, 0, stream>>>(d_hmap, d_azim, d_elev, W, H, A, max_range, res, min_elev, elev_delta);
+	horizon_k<<<GET_BLOCKS(H * W), CUDA_NUM_THREADS, 0, stream>>>(d_hmap, d_azim, d_elev, W, H, max_range, res, min_elev, elev_delta);
 
 	// Read mask results
-	cudaMemcpy(elev, d_elev, H * W * A * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(elev, d_elev, H * W * sizeof(float), cudaMemcpyDeviceToHost);
 	
 	// error handling
 	cudaError_t err = cudaGetLastError();
