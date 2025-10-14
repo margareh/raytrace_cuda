@@ -1,5 +1,7 @@
+import copy
 import torch
 import numpy as np
+from tqdm import tqdm
 from RaytraceCUDA import RaytraceCUDA
 from HorizonCUDA import HorizonCUDA
 
@@ -37,7 +39,7 @@ def raytrace(hmap, poses_inds, max_pts_inds, max_range, res):
 	return scan
 
 
-def raytrace_horizon(hmap, azim, res=1, max_range=4, min_elev=-89, elev_delta=0.25):
+def raytrace_horizon(hmap, azims, res=1, max_range=4, min_elev=-89, elev_delta=0.25):
 	"""
 	Python wrapper for CUDA raytracing at each point in heightmap
 	Goal is to return horizon for set angular increments
@@ -54,28 +56,23 @@ def raytrace_horizon(hmap, azim, res=1, max_range=4, min_elev=-89, elev_delta=0.
 	if not isinstance(hmap, torch.Tensor):
 		hmap = torch.Tensor(hmap).to(torch.float32)
 
-	if not isinstance(azim, torch.Tensor):
-		azim = torch.Tensor(azim).to(torch.float32)
+	if not isinstance(azims, torch.Tensor):
+		azims = torch.Tensor(azims).to(torch.float32)
 
 	# Get dimensions of heightmap and azimuths that we're going to use
 	h, w = hmap.shape
 	r = int(np.floor(max_range * 1000 / res))
-	hmap_mask = hmap[r:(h-r), r:(w-r)]
-	H, W = hmap_mask.shape
-	# print(hmap_mask.shape)
-	# print(azim)
-	A = azim.shape[0]
+	H = h - 2*r
+	W = w - 2*r
+	hmap = hmap.flatten()
 
-	# Create scan object to store results in
-	elev = torch.empty((H,W,A), dtype=torch.float32)
-	# print(elev.shape)
+	# Initialize elevations to minimum value for all
+	elev_db = np.empty((len(azims), H, W), dtype=np.float32)
+	elev = torch.ones((H, W), dtype=torch.float32).flatten() * min_elev
 
-	# Flatten input arrays
-	hmap = hmap.flatten() # row-major order
-	elev = elev.flatten()
+	# Loop through azimuths and compute horizon values for each
+	for i in tqdm(range(len(azims)), desc="Horizon calculations: "):
+		HorizonCUDA(hmap, azims[i], elev, W, H, 1, w, h, max_range, res, min_elev, elev_delta)
+		elev_db[i,...] = copy.copy(elev.cpu().reshape((H, W)).numpy())
 
-	# Call to CUDA kernel wrapper for horizon calculation
-	HorizonCUDA(hmap, azim, elev, W, H, A, w, h, max_range, res, min_elev, elev_delta)
-	elev = elev.cpu().reshape((H, W, A)).numpy()
-
-	return elev * (180 / np.pi)
+	return elev_db

@@ -160,33 +160,42 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
 	// Max range in meters
 	float max_range_m = max_range * 1000;
 
-	// Start with min elevation and loop until we find no terrain
-	float range = 0;
-	float curr_elev = min_elev * (M_PI / 180); // converted to rad
+	// Test initial elevation value and determine direction to step in
+	float curr_elev = elev[k*A + j] * (M_PI / 180); // converted to rad
 	elev_delta *= (M_PI / 180); // converted to rad
+	
+	float cos_elev = cos(curr_elev);
+	float end_point[3] = { cos(curr_azim) * cos_elev / res, sin(curr_azim) * cos_elev / res, sin(curr_elev) };
+	for (int c=0; c<3; c++){
+		end_point[c] *= max_range_m;
+		end_point[c] += start_point[c];
+	}
+	
+	float range = raytrace(hmap, start_point, end_point, res, H+2*b, W+2*b);
+
+	float sign = 1.0; // 1 = upwards (hit terrain), -1 = downwards (did not hit terrain)
+	if (range < 0) sign = -1.0;
+	
+	// Search for terrain
 	int iter=0;
-	while (max_range_m - range > 0.00001) {
+	bool run_cond = true;
+	while (run_cond && std::fabs(curr_elev) < M_PI / 2) {
 
 		// Increment elevation
-		// we're technically skipping the first but that's fine
-		// min_elev used later to mark points without intersections
-		curr_elev += elev_delta;
+		curr_elev += sign * elev_delta;
 	
-		// Define end point based on current grid cell, azimuth, elevation
-		float cos_elev = cos(curr_elev);
-		float end_point[3] = { cos(curr_azim) * cos_elev / res, sin(curr_azim) * cos_elev / res, sin(curr_elev) };
-		for (int c=0; c<3; c++){
-			end_point[c] *= max_range_m;
-			end_point[c] += start_point[c];
-		}
+		// Define new end point
+		cos_elev = cos(curr_elev);
+		end_point[0] = (cos(curr_azim) * cos_elev * max_range_m / res) + start_point[0];
+		end_point[1] = (sin(curr_azim) * cos_elev * max_range_m / res) + start_point[1];
+		end_point[2] = (sin(curr_elev) * max_range_m) + start_point[2];
 
 		// Call raytrace
 		range = raytrace(hmap, start_point, end_point, res, H+2*b, W+2*b);
-		if (range < 0) {
-			// error in raytracing (out of bounds or didn't find intersection)
-			// elevation for this point will be set to minimum value
-			// also setting range to max range to break out of loop
-			range = max_range_m;
+		if ((sign > 0 && range < 0) || (sign < 0 && range >= 0)) {
+			// case 1 (stepping up to find empty space) : we stop once we're unable to find the terrain
+			// case 2 (stepping down to find terrain) : we stop once we've found the terrain
+			run_cond = false;
 		}
 		iter++;
 
@@ -194,8 +203,9 @@ __global__ void horizon_k(float *hmap, float *azim, float *elev,
 
 	// Store the results
 	// need to subtract off change in elevation for last one that intersects with the terrain
-	elev[k*A + j] = curr_elev - elev_delta; // dimension order: y, x, azim
-	// elev[k*A + j] = end_point[0];
+	elev[k*A + j] = curr_elev * (180 / M_PI); // dimension order: y, x, azim
+	elev_delta *= (180 / M_PI); // convert back to degrees
+	if (sign > 0) elev[k*A + j] -= elev_delta; // want last elevation before not finding terrain in this case
 
 }
 
